@@ -28,12 +28,20 @@ CreateDirectory/@{sourceDir,commentsDir}
 (*Utility functions*)
 
 
+(* ::Text:: *)
+(*Construct simple ASCII-based URLs for deployed objects:*)
+
+
 (* ::Input::Initialization:: *)
 target[source_CloudObject]:=FileNameJoin[{targetDir,slugify[FileBaseName[First[source]]]}]
 
 
 (* ::Input::Initialization:: *)
 slugify[str_String]:=StringReplace[ToLowerCase[RemoveDiacritics[str]],{" "->"-"}]
+
+
+(* ::Text:: *)
+(*The title of a page is everything after the date in its file name:*)
 
 
 (* ::Input::Initialization:: *)
@@ -128,23 +136,34 @@ deployPosts[sources_]:=deployPost[sources,#]&/@Range[Length[sources]]
 (*Comments*)
 
 
+(* ::Text:: *)
+(*Comments are stored as individual cloud objects, in one directory per post.*)
+
+
+(* ::Text:: *)
+(*Render a user interface displaying a list of comments and a form (input field + button) to add a comment (if the user is authenticated; otherwise show a link to log in):*)
+
+
 (* ::Input::Initialization:: *)
-comments[postURL_,postID_,commentsDir_,loginAPI_]:=DynamicModule[{comments={},commentForm,getComments,addComment,renderComment,commentCell},Dynamic[commentCell[],"Text"],Initialization:>( 
-commentForm[]:=DynamicModule[{comment=""},Column[{Style[InputField[Dynamic[comment],String,BaseStyle->"Text"],"Text"],Button["Comment",addComment[comment,$RequesterWolframID,Now];comment=""]}]];
-getComments[]:=Import[#,"ExpressionJSON"]&/@With[{dir=FileNameJoin[{commentsDir,postID}]},If[DirectoryQ[dir],CloudObjects[dir],{}]];
-addComment[text_,author_,date_]:=With[{comment=<|"text"->text,"author"->author,"date"->date|>},AppendTo[comments,comment];Export[FileNameJoin[{commentsDir,postID,CreateUUID[]}],comment,"ExpressionJSON"]];
+comments[postName_,postID_,commentsDir_,loginAPI_]:=DynamicModule[{comments={},commentForm,addComment,renderComment,commentCell},Dynamic[commentCell[comments],"Text"],Initialization:>(
+commentForm[]:=DynamicModule[{comment=""},Column[{Style[InputField[Dynamic[comment],String,BaseStyle->"Text"],"Text"],Button["Comment",addComment[comments,comment,$RequesterWolframID,Now];comment=""]}]];
+addComment[_,text_,author_,date_]:=With[{comment=<|"text"->text,"author"->author,"date"->date|>},AppendTo[comments,comment];Export[FileNameJoin[{commentsDir,postID,CreateUUID[]}],comment,"ExpressionJSON"]];
 renderComment=Panel[#text,#author,Left]&;
-commentCell[]:=Column[{If[$RequesterWolframID=!=None,commentForm[],Button["Log in to comment",NotebookLocate[loginAPI<>"?target="<>URLEncode[postURL]]]],Column[renderComment/@comments]}];
-comments=getComments[];
+commentCell[comments_]:=With[{loginURL=First[loginAPI]<>"/"<>URLEncode[postName]},Column[{If[$RequesterWolframID=!=None,commentForm[],Hyperlink["Log in to comment",loginURL]],Column[renderComment/@comments]}]];
+comments=Import[#,"ExpressionJSON"]&/@With[{dir=FileNameJoin[{commentsDir,postID}]},If[DirectoryQ[dir],CloudObjects[dir],{}]];
 )]
 
 
-(* ::Input::Initialization:: *)
-loginAPI=CloudDeploy[APIFunction[{"target"->"String"},HTTPRedirect[#target]&],FileNameJoin[{targetDir,"login"}],Permissions->{"Authenticated"->"Execute"}]
+(* ::Text:: *)
+(*To log in a user, link to a non-public URLDispatcher that redirects back to the original post:*)
 
 
 (* ::Input::Initialization:: *)
-addCommentsSection[nb_Notebook,source_CloudObject]:=With[{uuid=CloudObjectInformation[source,"UUID"]},Insert[nb,Cell[CellGroupData[{cell["Comments","Section"],cell[comments[First[target[source]],uuid,commentsDir,loginAPI],"Text"]}]],{1,-1}]]
+loginAPI:=CloudDeploy[URLDispatcher["/" ~~target___~~EndOfString:>HTTPRedirect[FileNameJoin[{targetDir,target}]]],FileNameJoin[{targetDir,"login"}],Permissions->{"Authenticated"->"Execute"}]
+
+
+(* ::Input::Initialization:: *)
+addCommentsSection[nb_Notebook,source_CloudObject]:=With[{uuid=CloudObjectInformation[source,"UUID"]},Insert[nb,Cell[CellGroupData[{cell["Comments","Section"],cell[comments[FileBaseName[First[target[source]]],uuid,commentsDir,loginAPI],"Text"]}]],{1,-1}]]
 
 
 (* ::Input::Initialization:: *)
